@@ -16,7 +16,7 @@ class EChartsWidget extends HTMLElement {
         this._echartsLoaded = false;
 
         // Liaison de l'URL d'hébergement GitHub Pages ou CDN pour le suivi interne si nécessaire
-        this._widgetUrl = "https://akken-perso.github.io/Custom_widget/echarts_widget.js";
+        this._widgetUrl = "https://akken-perso.github.io/Custom_widget/";
     }
 
     // Cycle de vie SAC : Appelé quand le widget est ajouté sur le canevas de la Story
