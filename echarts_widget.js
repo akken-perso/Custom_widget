@@ -1,145 +1,170 @@
-// On crée le template HTML contenant uniquement le conteneur du graphique
+// Définition du template HTML & CSS du widget
 const template = document.createElement("template");
 template.innerHTML = `
-    <div id="echarts-container" style="width: 100%; height: 100%; min-height: 350px;"></div>
+    <style>
+        :host {
+            display: block;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            width: 100%;
+            height: 100%;
+            overflow-y: auto;
+        }
+        .panel-container {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 15px;
+            padding: 10px;
+            box-sizing: border-box;
+        }
+        .indicator-card {
+            flex: 1 1 calc(25% - 15px); /* Donne un rendu de 4 cartes par ligne si l'espace le permet */
+            min-width: 200px;
+            background: #ffffff;
+            border-radius: 8px;
+            border: 1px solid #e2e8f0;
+            padding: 15px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+            box-sizing: border-box;
+            transition: transform 0.2s;
+        }
+        .indicator-card:hover {
+            transform: translateY(-2px);
+        }
+        .card-title {
+            font-size: 0.9rem;
+            color: #64748b;
+            font-weight: 600;
+            margin-bottom: 8px;
+            text-transform: uppercase;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .card-values {
+            display: flex;
+            justify-content: space-between;
+            align-items: baseline;
+        }
+        .value-actual {
+            font-size: 1.8rem;
+            font-weight: 700;
+        }
+        .value-target {
+            font-size: 0.85rem;
+            color: #94a3b8;
+        }
+        .status-badge {
+            margin-top: 10px;
+            display: inline-block;
+            padding: 3px 8px;
+            border-radius: 4px;
+            font-size: 0.75rem;
+            font-weight: bold;
+            color: #ffffff;
+        }
+        .empty-message {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 100%;
+            height: 100%;
+            min-height: 150px;
+            color: #64748b;
+            font-style: italic;
+            border: 2px dashed #cbd5e1;
+            border-radius: 8px;
+            background: #f8fafc;
+        }
+    </style>
+    <div id="root-container" class="panel-container">
+        <div class="empty-message">Veuillez lier un modèle, une dimension et au moins une mesure dans le panneau de configuration SAC.</div>
+    </div>
 `;
 
-class EChartsWidget extends HTMLElement {
+class LibrePanel extends HTMLElement {
     constructor() {
         super();
-        // Création du Shadow DOM pour isoler le rendu du graphique dans SAC
+        // Création du Shadow DOM pour isoler le style du widget du reste de la Story SAC
         this._shadowRoot = this.attachShadow({ mode: "open" });
         this._shadowRoot.appendChild(template.content.cloneNode(true));
         
-        this._container = this._shadowRoot.getElementById("echarts-container");
-        this._myChart = null;
-        this._echartsLoaded = false;
-
-        // Liaison de l'URL d'hébergement GitHub Pages ou CDN pour le suivi interne si nécessaire
-        this._widgetUrl = "https://akken-perso.github.io/Custom_widget/";
+        this._container = this._shadowRoot.getElementById("root-container");
+        
+        // Récupération par défaut des couleurs définies dans les propriétés du JSON
+        this._colorAbove = "#27AE60";
+        this._colorBelow = "#C0392B";
     }
 
-    // Cycle de vie SAC : Appelé quand le widget est ajouté sur le canevas de la Story
-    connectedCallback() {
-        this.loadEChartsLibrary();
-    }
-
-    // Chargement asynchrone et sécurisé de la bibliothèque Apache ECharts
-    async loadEChartsLibrary() {
-        if (typeof window.echarts !== "undefined" || this._echartsLoaded) {
-            this._echartsLoaded = true;
-            this.render();
-            return;
-        }
-
-        try {
-            // Importation dynamique de la dernière version stable d'ECharts depuis un CDN hautement disponible
-            await import("https://cdnjs.cloudflare.com/ajax/libs/echarts/5.5.0/echarts.esm.min.js");
-            this._echartsLoaded = true;
-            this.render();
-        } catch (error) {
-            console.error("Erreur lors du chargement d'Apache ECharts depuis le CDN:", error);
-            this._container.innerHTML = `<p style="color:red; padding:10px;">Échec du chargement d'ECharts : Vérifiez les Trusted Origins dans SAC.</p>`;
-        }
-    }
-
-    // Cycle de vie SAC : Appelé automatiquement dès que les filtres ou les données SAP changent
+    // Cycle de vie SAC : Appelé automatiquement lorsque le widget reçoit des modifications (données, filtres, propriétés)
     onCustomWidgetAfterUpdate(changedProperties) {
-        if (this._echartsLoaded) {
-            this.render();
-        }
+        // Mise à jour dynamique des couleurs si elles ont été modifiées dans l'interface SAC
+        if (changedProperties.colorAbove) this._colorAbove = changedProperties.colorAbove;
+        if (changedProperties.colorBelow) this._colorBelow = changedProperties.colorBelow;
+
+        this.renderDynamicData();
     }
 
-    // Génération et mise à jour du graphique avec les flux de données réels
-    render() {
-        // Initialisation de l'instance de graphique sur le conteneur HTML si elle n'existe pas encore
-        if (!this._myChart && window.echarts) {
-            this._myChart = window.echarts.init(this._container);
-        }
-
-        if (!this._myChart) return;
-
-        // Récupération du flux de données "dataBindings" défini par le JSON
-        const dataBinding = this.dataBindings ? this.dataBindings.getDataBinding("data") : null;
+    renderDynamicData() {
+        // Accès au flux de données défini sous l'ID "dataStructurePerformance" du fichier JSON
+        const binding = this.dataBindings ? this.dataBindings.getDataBinding("dataStructurePerformance") : null;
         
-        // Si aucune donnée n'est encore glissée-déposée dans le panneau Builder de SAC
-        if (!dataBinding || !dataBinding.data || dataBinding.data.length === 0) {
+        // Sécurité : Si aucune donnée n'est envoyée ou si le chargement est en cours
+        if (!binding || !binding.data || binding.data.length === 0) {
             this._container.innerHTML = `
-                <div style="display:flex; align-items:center; justify-content:center; height:100%; color:#666; font-family:sans-serif; text-align:center;">
-                    Veuillez lier une Dimension et une Mesure dans le panneau de configuration SAC.
+                <div class="empty-message">
+                    Abonnement aux données actif. Veuillez glisser une Dimension (ex: Atelier) et vos Mesures (Réel, Objectif) dans le panneau de droite.
                 </div>`;
-            this._myChart = null; // Forcer la réinitialisation au prochain passage
             return;
         }
 
-        // Nettoyage de l'affichage d'attente si les données viennent d'arriver
-        if (this._container.querySelector('div')) {
-            this._container.innerHTML = '';
-            this._myChart = window.echarts.init(this._container);
-        }
+        const rawRows = binding.data;
+        this._container.innerHTML = ""; // On vide le conteneur pour reconstruire les éléments avec les nouvelles données
 
-        const sapData = dataBinding.data;
+        // Boucle sur chaque ligne renvoyée dynamiquement par le modèle analytique SAC
+        rawRows.forEach((row) => {
+            // 1. Extraction du libellé de la première dimension sélectionnée (Axe X / Ligne / Atelier)
+            const labelDimension = row.dimensions[0] && row.dimensions[0].label ? row.dimensions[0].label : "Indicateur sans nom";
+            
+            // 2. Extraction sécurisée de la première mesure (index 0 : Réel)
+            const valeurReelle = row.measures[0] && row.measures[0].raw !== undefined ? row.measures[0].raw : null;
+            const formatReelle = row.measures[0] && row.measures[0].formatted ? row.measures[0].formatted : "-";
+            
+            // 3. Extraction sécurisée de la seconde mesure (index 1 : Objectif)
+            const valeurObjectif = row.measures[1] && row.measures[1].raw !== undefined ? row.measures[1].raw : null;
+            const formatObjectif = row.measures[1] && row.measures[1].formatted ? row.measures[1].formatted : "-";
 
-        // Extraction dynamique des axes à partir du modèle SAP (S'adapte aux libellés de vos colonnes)
-        const categories = sapData.map(row => row.dimensions[0].label); // Premier champ de dimension (Ex: Axe X / Temps)
-        const values = sapData.map(row => row.measures[0].raw);       // Premier champ de mesure (Ex: Axe Y / Quantités)
+            // 4. Calcul de l'état de performance (Comparaison Réel vs Objectif)
+            let statusText = "Pas d'objectif";
+            let badgeColor = "#94a3b8"; // Gris par défaut
 
-        // Configuration d'affichage d'Apache ECharts (Personnalisable à l'infini)
-        const option = {
-            tooltip: {
-                trigger: 'axis',
-                backgroundColor: 'rgba(255, 255, 255, 0.95)',
-                borderWidth: 1,
-                borderColor: '#ccc'
-            },
-            grid: {
-                left: '8%',
-                right: '5%',
-                bottom: '10%',
-                top: '12%',
-                containLabel: true
-            },
-            xAxis: {
-                type: 'category',
-                data: categories,
-                axisLine: { lineStyle: { color: '#999' } }
-            },
-            yAxis: {
-                type: 'value',
-                splitLine: { lineStyle: { type: 'dashed', color: '#eee' } },
-                axisLine: { show: false }
-            },
-            series: [{
-                name: dataBinding.metadata.feeds.measures.values[0] || 'Indicateur',
-                data: values,
-                type: 'line',
-                smooth: true,                // Courbe lissée fluide (Inexistante en natif simple)
-                symbolSize: 8,
-                lineStyle: { width: 3, color: '#2b7cff' },
-                itemStyle: { color: '#2b7cff' },
-                areaStyle: {                 // Dégradé de couleur sous la courbe pour un effet "Aire moderne"
-                    color: {
-                        type: 'linear',
-                        x: 0, y: 0, x2: 0, y2: 1,
-                        colorStops: [
-                            { offset: 0, color: 'rgba(43, 124, 255, 0.4)' },
-                            { offset: 1, color: 'rgba(43, 124, 255, 0.0)' }
-                        ]
-                    }
+            if (valeurReelle !== null && valeurObjectif !== null) {
+                if (valeurReelle >= valeurObjectif) {
+                    statusText = "Objectif Atteint";
+                    badgeColor = this._colorAbove; // Vert (ou couleur personnalisée)
+                } else {
+                    statusText = "En deçà du seuil";
+                    badgeColor = this._colorBelow; // Rouge (ou couleur personnalisée)
                 }
-            }]
-        };
+            }
 
-        // Rendu final
-        this._myChart.setOption(option);
-        
-        // Écouteur pour adapter la taille du graphique si l'utilisateur redimensionne le widget dans la Story
-        const resizeObserver = new ResizeObserver(() => {
-            if (this._myChart) this._myChart.resize();
+            // 5. Génération dynamique du code HTML pour la ligne/carte courante
+            const card = document.createElement("div");
+            card.className = "indicator-card";
+            card.innerHTML = `
+                <div class="card-title" title="${labelDimension}">${labelDimension}</div>
+                <div class="card-values">
+                    <div class="value-actual" style="color: ${badgeColor};">${formatReelle}</div>
+                    <div class="value-target">Obj: ${formatObjectif}</div>
+                </div>
+                <div class="status-badge" style="background-color: ${badgeColor};">
+                    ${statusText}
+                </div>
+            `;
+            
+            this._container.appendChild(card);
         });
-        resizeObserver.observe(this);
     }
 }
 
-// Enregistrement du Web Component (Le tag doit correspondre exactement au JSON)
-customElements.define("com-exemple-echarts-main", EChartsWidget);
+// Enregistrement du Web Component (Le tag 'libre-panel' doit être identique à la propriété 'tag' du fichier JSON)
+customElements.define("libre-panel", LibrePanel);
